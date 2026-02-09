@@ -1,0 +1,20 @@
+{
+  "grid": {
+    "x_min": 0,
+    "x_max": 200,
+    "x_n": 100,
+    "y_min": 0,
+    "y_max": 200,
+    "y_n": 100,
+    "z_min": 0,
+    "z_max": 50,
+    "z_n": 1
+  },
+  "L": 3000,
+  "batch_size": 600,
+  "type": "gaussian",
+  "anisotropy": "lva_azimuth_ramp",
+  "azimuth_start": 0.0,
+  "azimuth_end": 80.0,
+  "ranges": [150.0, 18.0, 2.5]
+}

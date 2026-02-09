@@ -13,19 +13,38 @@ class NonStationarySpectralSimulator:
     as described in Emery and Arroyo (2017).
     """
 
-    def __init__(self, grid_coords, L=5000, dim=2):
+    def __init__(self, grid_coords, config, L=5000, dim=2):
         """
         Initialize the simulator.
 
         Args:
             grid_coords (np.ndarray): (N, d) array of coordinates to simulate.
-            [cite_start]L (int): Number of lines (cosine waves) to sum. Default 5000[cite: 124].
+            config (dict): Configuration dictionary.
+            L (int): Number of lines (cosine waves) to sum.
             dim (int): Spatial dimension (default 2).
         """
         self.grid = grid_coords
+        self.config = config
         self.L = L
         self.d = dim
         self.num_points = grid_coords.shape[0]
+
+    def _sample_proposal_frequencies(self, scale=3.0, nu=0.3):
+        """
+        Sample L frequency vectors 'u' from the proposal density 'g'.
+        ... (rest of method unchanged, implicitly preserved if not replaced,
+             but since we are replacing the class methods, we need to keep context or
+             use a targeted replacement. I will replace the init and get_local_anisotropy
+             but I need to be careful with the replace tool if I don't include the whole class.
+             The replace tool works on string matching. I will replace the __init__ method first,
+             then _get_local_anisotropy.)
+        """
+        # ... (This method is not being changed here, so I won't include it in new_string
+        #      if I target specific blocks. However, the instruction asks to update methods.
+        #      I'll do two replacements to be safe and clean.)
+        pass
+
+    # ... (Actual implementation below)
 
     def _sample_proposal_frequencies(self, scale=3.0, nu=0.3):
         """
@@ -69,47 +88,152 @@ class NonStationarySpectralSimulator:
 
     def _get_local_anisotropy(self, locations):
         """
+
         Define the non-stationary anisotropy matrix Sigma_x for given locations.
 
+
+
         Args:
+
             locations (np.ndarray): (N, d) array of locations.
 
+
+
         Returns:
+
             sigma (np.ndarray): (N, d, d) array of anisotropy matrices.
+
         """
+
         # Ensure locations is 2D
+
         if locations.ndim == 1:
+
             locations = locations[np.newaxis, :]
 
         N = locations.shape[0]
 
-        # Use y-coordinate (index 1) to vary range
-        if self.d >= 2:
-            y_coords = locations[:, 1]
+        mode = self.config.get("anisotropy", "linear_y")
+
+        if mode == "lva_azimuth_ramp":
+
+            # --- LVA Logic ---
+
+            # 1. Ranges
+
+            # Default to r1=100, r2=20, r3=4 (5x ratios)
+
+            ranges = self.config.get("ranges", [100.0, 20.0, 4.0])
+
+            r1, r2 = ranges[0], ranges[1]
+
+            r3 = ranges[2] if len(ranges) > 2 else 1.0
+
+            lam1, lam2, lam3 = r1**2, r2**2, r3**2
+
+            # 2. Azimuth (Rotation around Z)
+
+            # Varies linearly from 0 to 60 degrees along X
+
+            x_coords = locations[:, 0]
+
+            x_min = self.config["grid"]["x_min"]
+
+            x_max = self.config["grid"]["x_max"]
+
+            # Normalize x to [0, 1]
+
+            x_norm = (x_coords - x_min) / (x_max - x_min)
+
+            x_norm = np.clip(x_norm, 0, 1)
+
+            # Azimuth in degrees (default 0 to 60)
+            theta_deg_start = self.config.get('azimuth_start', 0.0)
+            theta_deg_end = self.config.get('azimuth_end', 60.0)
+
+            theta = np.deg2rad(
+                theta_deg_start + (theta_deg_end - theta_deg_start) * x_norm
+            )
+
+            c = np.cos(theta)
+
+            s = np.sin(theta)
+
+            # 3. Construct Sigma = R * Lambda * R.T
+
+            # For rotation around Z:
+
+            # Sigma_xy block:
+
+            # [[ c^2 lam1 + s^2 lam2,   cs(lam1 - lam2) ],
+
+            #  [ cs(lam1 - lam2),       s^2 lam1 + c^2 lam2 ]]
+
+            sigmas = np.zeros((N, self.d, self.d))
+
+            val_00 = (c**2) * lam1 + (s**2) * lam2
+
+            val_01 = c * s * (lam1 - lam2)
+
+            val_11 = (s**2) * lam1 + (c**2) * lam2
+
+            sigmas[:, 0, 0] = val_00
+
+            sigmas[:, 0, 1] = val_01
+
+            sigmas[:, 1, 0] = val_01
+
+            sigmas[:, 1, 1] = val_11
+
+            if self.d == 3:
+
+                # Z-axis is independent (tertiary)
+
+                sigmas[:, 2, 2] = lam3
+
+            return sigmas
+
         else:
-            y_coords = np.zeros(N)  # Fallback for 1D
 
-        min_range = 5.0
-        max_range = 30.0
-        max_grid_y = 200.0
+            # --- Default: Linear Y Range Logic ---
 
-        clamped_y = np.clip(y_coords, 0, max_grid_y)
-        range_vals = min_range + (max_range - min_range) * (clamped_y / max_grid_y)
+            # Use y-coordinate (index 1) to vary range
 
-        # Construct (N, d, d) matrices
-        # Since currently they are diagonal s^2 * I
-        # We can construct them efficiently
-        sigmas = np.zeros((N, self.d, self.d))
+            if self.d >= 2:
 
-        # Fill diagonal
-        squared_ranges = range_vals**2
+                y_coords = locations[:, 1]
 
-        # Efficient diagonal filling
-        # equivalent to: for i in range(d): sigmas[:, i, i] = squared_ranges
-        idx = np.arange(self.d)
-        sigmas[:, idx, idx] = squared_ranges[:, np.newaxis]
+            else:
 
-        return sigmas
+                y_coords = np.zeros(N)  # Fallback for 1D
+
+            min_range = 5.0
+
+            max_range = 30.0
+
+            max_grid_y = 200.0
+
+            clamped_y = np.clip(y_coords, 0, max_grid_y)
+
+            range_vals = min_range + (max_range - min_range) * (clamped_y / max_grid_y)
+
+            # Construct (N, d, d) matrices
+
+            # Since currently they are diagonal s^2 * I
+
+            sigmas = np.zeros((N, self.d, self.d))
+
+            # Fill diagonal
+
+            squared_ranges = range_vals**2
+
+            # Efficient diagonal filling
+
+            idx = np.arange(self.d)
+
+            sigmas[:, idx, idx] = squared_ranges[:, np.newaxis]
+
+            return sigmas
 
     def _evaluate_gaussian_spectral_density(self, u, sigmas):
         """
@@ -304,7 +428,7 @@ def run_simulation(config_path):
     # Simulator setup
     L = config.get("L", 5000)
     batch_size = config.get("batch_size", 1000)
-    sim = NonStationarySpectralSimulator(grid_coords, L=L, dim=dim)
+    sim = NonStationarySpectralSimulator(grid_coords, config, L=L, dim=dim)
 
     # Run
     sim_type = config.get("type", "gaussian").lower()
