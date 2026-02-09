@@ -10,6 +10,7 @@
     "z_max": 200,
     "z_n": 50
   },
-  "L": 100,
+  "L": 300,
+  "batch_size": 100,
   "type": "gaussian"
 }
