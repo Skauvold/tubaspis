@@ -1,3 +1,5 @@
+import argparse
+import json
 import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
@@ -255,34 +257,47 @@ class NonStationarySpectralSimulator:
         return field / np.sqrt(self.L)
 
 
-# --- Example Usage Stub ---
-if __name__ == "__main__":
-    # Define a 201x201 grid
-    x_range = np.linspace(0, 200, 201)
-    y_range = np.linspace(0, 200, 201)
+def run_simulation(config_path):
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+
+    # Grid setup
+    grid_cfg = config['grid']
+    x_range = np.linspace(grid_cfg['x_min'], grid_cfg['x_max'], grid_cfg['x_n'])
+    y_range = np.linspace(grid_cfg['y_min'], grid_cfg['y_max'], grid_cfg['y_n'])
     xv, yv = np.meshgrid(x_range, y_range)
-    grid = np.column_stack([xv.ravel(), yv.ravel()])
+    grid_coords = np.column_stack([xv.ravel(), yv.ravel()])
 
-    # Initialize Simulator
-    sim = NonStationarySpectralSimulator(grid, L=100)  # Low L for testing
+    # Simulator setup
+    L = config.get('L', 5000)
+    sim = NonStationarySpectralSimulator(grid_coords, L=L)
 
-    # Run Simulation
-    result = sim.simulate_univariate_gaussian()
-    result_grid = result.reshape(201, 201)
+    # Run
+    sim_type = config.get('type', 'gaussian').lower()
+    if sim_type == 'gaussian':
+        print("Running Gaussian Simulation...")
+        result = sim.simulate_univariate_gaussian()
+        title = "Simulated Univariate Gaussian Field"
+    elif sim_type == 'matern':
+        nu = config.get('matern_nu', 0.5)
+        print(f"Running Matern Simulation (nu={nu})...")
+        result = sim.simulate_univariate_matern(nu_local=nu)
+        title = f"Simulated Univariate Matern Field (nu={nu})"
+    else:
+        raise ValueError(f"Unknown simulation type: {sim_type}")
 
-    # Plotting code placeholder
-    plt.imshow(result_grid, origin='lower')
-    plt.title("Simulated Univariate Gaussian Field")
-    plt.colorbar(label="Field Value")
-    plt.show()
-
-    # Run Matern Simulation
-    print("\nRunning Matern Simulation...")
-    matern_result = sim.simulate_univariate_matern(nu_local=0.5) # Exponential case
-    matern_result_grid = matern_result.reshape(201, 201)
-
+    # Plot
+    result_grid = result.reshape(grid_cfg['y_n'], grid_cfg['x_n'])
     plt.figure()
-    plt.imshow(matern_result_grid, origin='lower')
-    plt.title(f"Simulated Univariate Matern Field (nu_local=0.5)")
+    plt.imshow(result_grid, origin='lower', extent=[grid_cfg['x_min'], grid_cfg['x_max'], grid_cfg['y_min'], grid_cfg['y_max']])
+    plt.title(title)
     plt.colorbar(label="Field Value")
     plt.show()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run Non-Stationary Spectral Simulator")
+    parser.add_argument("config_file", help="Path to configuration JSON file")
+    args = parser.parse_args()
+
+    run_simulation(args.config_file)
