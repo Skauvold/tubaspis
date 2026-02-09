@@ -62,35 +62,74 @@ class NonStationarySpectralSimulator:
         
         return u_vectors, g_values
 
-    def _get_local_anisotropy(self, location):
+    def _get_local_anisotropy(self, locations):
         """
-        Define the non-stationary anisotropy matrix Sigma_x for a given location.
+        Define the non-stationary anisotropy matrix Sigma_x for given locations.
+        
+        Args:
+            locations (np.ndarray): (N, d) array of locations.
+            
+        Returns:
+            sigma (np.ndarray): (N, d, d) array of anisotropy matrices.
         """
-        # Use y-coordinate (index 1) to vary range, assuming 2D or 3D
+        # Ensure locations is 2D
+        if locations.ndim == 1:
+            locations = locations[np.newaxis, :]
+            
+        N = locations.shape[0]
+        
+        # Use y-coordinate (index 1) to vary range
         if self.d >= 2:
-            y_coord = location[1]
+            y_coords = locations[:, 1]
         else:
-            y_coord = 0 # Fallback for 1D
+            y_coords = np.zeros(N) # Fallback for 1D
             
         min_range = 5.0
         max_range = 30.0
         max_grid_y = 200.0 
 
-        clamped_y = np.clip(y_coord, 0, max_grid_y)
-        range_val = min_range + (max_range - min_range) * (clamped_y / max_grid_y)
+        clamped_y = np.clip(y_coords, 0, max_grid_y)
+        range_vals = min_range + (max_range - min_range) * (clamped_y / max_grid_y)
         
-        sigma_x = (range_val**2) * np.eye(self.d)
+        # Construct (N, d, d) matrices
+        # Since currently they are diagonal s^2 * I
+        # We can construct them efficiently
+        sigmas = np.zeros((N, self.d, self.d))
         
-        return sigma_x
+        # Fill diagonal
+        squared_ranges = range_vals**2
+        
+        # Efficient diagonal filling
+        # equivalent to: for i in range(d): sigmas[:, i, i] = squared_ranges
+        idx = np.arange(self.d)
+        sigmas[:, idx, idx] = squared_ranges[:, np.newaxis]
+        
+        return sigmas
 
-    def _evaluate_gaussian_spectral_density(self, u, sigma):
+    def _evaluate_gaussian_spectral_density(self, u, sigmas):
         """
-        Evaluates the Gaussian spectral density f_x(u).
+        Evaluates the Gaussian spectral density f_x(u) for a specific u and local sigmas.
+
+        Args:
+            u (np.ndarray): (d,) frequency vector.
+            sigmas (np.ndarray): (N, d, d) anisotropy matrices.
+            
+        Returns:
+            densities (np.ndarray): (N,) array of spectral densities.
         """
-        det_sigma = np.linalg.det(sigma)
-        u_sigma_u = np.dot(np.dot(u, sigma), u)
+        # Calculate determinant of Sigmas
+        # np.linalg.det works on stacked matrices (..., M, M)
+        det_sigmas = np.linalg.det(sigmas)
         
-        constant_factor = (det_sigma**0.5) * ((2 * np.sqrt(np.pi))**(-self.d))
+        # Calculate u.T * Sigma * u for all N
+        # shape: (N,)
+        # einsum: 'j' is dimension 1 of vector, 'njk' is sigma, 'k' is dimension 2 of vector
+        u_sigma_u = np.einsum('j,njk,k->n', u, sigmas, u)
+        
+        # Calculate the constant factor
+        constant_factor = (det_sigmas**0.5) * ((2 * np.sqrt(np.pi))**(-self.d))
+        
+        # Calculate the exponential term
         exp_term = np.exp(-0.25 * u_sigma_u)
         
         return constant_factor * exp_term
@@ -100,6 +139,11 @@ class NonStationarySpectralSimulator:
         Simulates a univariate non-stationary Gaussian field.
         """
         print(f"Starting Univariate Simulation ({self.d}D)...")
+        print("Pre-computing local anisotropies...")
+        
+        # Pre-compute anisotropies for all grid points ONCE
+        # This removes the O(N) call from inside the loop
+        local_sigmas = self._get_local_anisotropy(self.grid)
 
         # 1. Generate Proposal Frequencies
         u_vectors, g_vals = self._sample_proposal_frequencies()
@@ -110,6 +154,7 @@ class NonStationarySpectralSimulator:
         # Initialize accumulator
         field = np.zeros(self.num_points)
 
+        print(f"Summing {self.L} lines...")
         # 3. Main Loop
         for l in range(self.L):
             u_l = u_vectors[l]
@@ -118,12 +163,8 @@ class NonStationarySpectralSimulator:
 
             dot_prods = np.dot(self.grid, u_l)
 
-            # Local spectral densities
-            f_x_vals = np.zeros(self.num_points)
-            for i in range(self.num_points):
-                loc = self.grid[i]
-                sigma_x = self._get_local_anisotropy(loc)
-                f_x_vals[i] = self._evaluate_gaussian_spectral_density(u_l, sigma_x)
+            # Vectorized calculation of f_x for all points
+            f_x_vals = self._evaluate_gaussian_spectral_density(u_l, local_sigmas)
 
             weights = np.sqrt(2 * f_x_vals / g_u)
             field += weights * np.cos(dot_prods + phi_l)
@@ -135,11 +176,16 @@ class NonStationarySpectralSimulator:
         Simulates a non-stationary Matern field.
         """
         print(f"Starting Univariate Matern Simulation with nu_local={nu_local} ({self.d}D)...")
+        print("Pre-computing local anisotropies...")
+
+        # Pre-compute anisotropies
+        local_sigmas = self._get_local_anisotropy(self.grid)
 
         u_vectors, g_vals = self._sample_proposal_frequencies()
         phases = np.random.uniform(0, 2 * np.pi, self.L)
         field = np.zeros(self.num_points)
 
+        print(f"Summing {self.L} lines...")
         for l in range(self.L):
             u_l = u_vectors[l]
             phi_l = phases[l]
@@ -148,12 +194,34 @@ class NonStationarySpectralSimulator:
 
             dot_prods = np.dot(self.grid, u_l)
 
-            f_x_vals = np.zeros(self.num_points)
-            for i in range(self.num_points):
-                loc = self.grid[i]
-                base_sigma_x = self._get_local_anisotropy(loc)
-                effective_sigma_x = 4 * a_l * base_sigma_x
-                f_x_vals[i] = self._evaluate_gaussian_spectral_density(u_l, effective_sigma_x)
+            # Vectorized sigma scaling
+            # effective_sigma = 4 * a_l * local_sigma
+            # We can scale u_sigma_u result by 4*a_l and det by (4*a_l)^d 
+            # OR just pass scaled sigmas. Passing scaled sigmas is cleaner but slower allocation.
+            # Let's optimize: scale the sigmas in place or transiently?
+            # Creating a new (N, d, d) array every loop is bad if N is large.
+            
+            # Better approach: 
+            # f(u, 4*a*Sigma) = |4*a*Sigma|^0.5 * ... * exp(-0.25 * u.T * (4*a*Sigma) * u)
+            #                 = (4*a)^(d/2) * |Sigma|^0.5 * ... * exp(-0.25 * 4*a * (u.T * Sigma * u))
+            #                 = (4*a)^(d/2) * f_base(u, Sigma) * exp_term_correction
+            
+            # However, f_base has exp(-0.25 * term). We need exp(-0.25 * 4a * term).
+            # So we can't just multiply f_base.
+            
+            # Let's compute manually using the vectorized primitives to avoid alloc
+            det_sigmas = np.linalg.det(local_sigmas)
+            u_sigma_u = np.einsum('j,njk,k->n', u_l, local_sigmas, u_l)
+            
+            # Apply 4*a_l scaling
+            scale_factor = 4 * a_l
+            
+            # |cS| = c^d |S|
+            det_effective = (scale_factor**self.d) * det_sigmas
+            u_eff_sigma_u = scale_factor * u_sigma_u
+            
+            constant_factor = (det_effective**0.5) * ((2 * np.sqrt(np.pi))**(-self.d))
+            f_x_vals = constant_factor * np.exp(-0.25 * u_eff_sigma_u)
 
             weights = np.sqrt(2 * f_x_vals / g_u)
 
