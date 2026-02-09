@@ -54,8 +54,32 @@ Add `z` parameters to the grid configuration:
 **Parameters:**
 - `grid`: Defines the spatial domain and resolution.
 - `L`: Number of cosine lines to sum (higher = better convergence but slower).
+- `batch_size`: Number of frequency lines to process in parallel (default 1000). Reduce this (e.g., 100) for large 3D grids to avoid memory issues.
 - `type`: Field type, either `"gaussian"` or `"matern"`.
 - `matern_nu`: Smoothness parameter for Matern covariance (default 0.5).
+- `anisotropy`: (Optional) `"linear_y"` (default) or `"lva_azimuth_ramp"`.
+- `ranges`: (Optional) List of correlation ranges $[r_1, r_2, r_3]$ for LVA.
+- `azimuth_start` / `azimuth_end`: (Optional) Start and end angles (in degrees) for the azimuth ramp LVA.
+
+### Examples
+The project includes several example configurations:
+
+1.  **`config.json`**: Basic 2D simulation with linearly varying range along the Y-axis.
+    ```bash
+    python main.py config.json
+    ```
+
+2.  **`config_3d.json`**: 3D simulation illustrating how to setup a volumetric grid.
+    ```bash
+    python main.py config_3d.json
+    ```
+
+3.  **`config_lva.json`**: 3D simulation with **Locally Varying Anisotropy (LVA)**.
+    - Demonstrates rotating anisotropy where the azimuth angle varies linearly from `azimuth_start` to `azimuth_end` along the X-axis.
+    - Uses defined `ranges` for primary, secondary, and tertiary directions.
+    ```bash
+    python main.py config_lva.json
+    ```
 
 ## Key Equations
 
