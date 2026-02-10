@@ -2,7 +2,6 @@ import argparse
 import json
 import time
 import numpy as np
-import scipy.stats as stats
 import matplotlib.pyplot as plt
 from scipy.special import gamma
 
