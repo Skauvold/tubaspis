@@ -8,18 +8,50 @@ The method generates realizations by summing cosine waves with random frequencie
 
 ## Usage
 
-### Installation
+There are two implementations: a Python reference and a high-performance C++/OpenMP version.
+
+### Python
+
 1. Ensure Python 3.11+ is installed.
 2. Install dependencies:
    ```bash
    pip install matplotlib numpy scipy
    ```
+3. Run:
+   ```bash
+   python main.py config.json
+   ```
 
-### Running Simulations
-Run the simulation by providing a configuration JSON file:
+### C++ (recommended for large simulations)
+
+The C++ implementation parallelizes the simulation kernel with OpenMP, giving ~10x single-thread speedup over Python and linear scaling across cores.
+
+**Requirements:** CMake 3.16+, a C++17 compiler with OpenMP (GCC, MSVC, or Clang with libomp).
+
+**Build:**
 ```bash
-python main.py config.json
+cd cpp
+mkdir build && cd build
+cmake .. -G "MinGW Makefiles"      # or -G "Unix Makefiles", "Ninja", etc.
+cmake --build .
 ```
+
+**Run:**
+```bash
+./tubaspis <config.json> [output.npy]
+```
+
+The output is a `.npy` file that can be loaded directly in Python with `np.load()`. If no output path is given, it writes to `output.npy`.
+
+**Visualize:**
+```bash
+python cpp/scripts/plot.py output.npy config.json
+```
+
+**Additional config options** (C++ only):
+- `seed`: RNG seed for reproducibility (default 42).
+- `proposal_scale`: Scale parameter for the multivariate-t proposal (default 3.0).
+- `proposal_nu`: Shape parameter for the proposal density (default 0.3).
 
 ### Configuration Format
 Create a JSON file (e.g., `config.json`) with the following structure:
@@ -62,16 +94,20 @@ Add `z` parameters to the grid configuration:
 - `azimuth_start` / `azimuth_end`: (Optional) Start and end angles (in degrees) for the azimuth ramp LVA.
 
 ### Examples
-The project includes several example configurations:
+The project includes several example configurations. Both Python and C++ accept the same config format:
 
-1.  **`config.json`**: Basic 2D simulation with linearly varying range along the Y-axis.
+1.  **`config.json`**: Basic 2D Gaussian simulation with linearly varying range along the Y-axis.
     ```bash
     python main.py config.json
+    # or
+    cpp/build/tubaspis config.json output.npy
     ```
 
 2.  **`config_3d.json`**: 3D simulation illustrating how to setup a volumetric grid.
     ```bash
     python main.py config_3d.json
+    # or
+    cpp/build/tubaspis config_3d.json output_3d.npy
     ```
 
 3.  **`config_lva.json`**: 3D simulation with **Locally Varying Anisotropy (LVA)**.
@@ -79,6 +115,8 @@ The project includes several example configurations:
     - Uses defined `ranges` for primary, secondary, and tertiary directions.
     ```bash
     python main.py config_lva.json
+    # or
+    cpp/build/tubaspis config_lva.json output_lva.npy
     ```
 
 ## Key Equations
